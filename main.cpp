@@ -1,18 +1,24 @@
-#include <stdio.h>
-#include <stdlib.h>
-/*Include ffmpeg header file*/
 #ifdef __cplusplus
 extern "C" {
 #endif
-
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/time.h>
+/*Include ffmpeg header file*/
 #include <libavformat/avformat.h>
-
 #ifdef __cplusplus
-};
+}
 #endif
 
 #include "MppDecode.h"
 
+static double get_current_time()
+{
+	struct timeval tv;
+	gettimeofday(&tv,NULL);
+
+	return tv.tv_sec*1000.0 + tv.tv_usec/1000.0;
+}
 
 void deInit(MppPacket *packet, MppFrame *frame, MppCtx ctx, char *buf, MpiDecLoopData data )
 {
@@ -31,12 +37,10 @@ void deInit(MppPacket *packet, MppFrame *frame, MppCtx ctx, char *buf, MpiDecLoo
         ctx = NULL;
     }
 
-
-    if (buf) {
-        mpp_free(buf);
-        buf = NULL;
-    }
-
+    //if (buf) {
+    //    mpp_free(buf);
+    //    buf = NULL;
+    //}
 
     if (data.pkt_grp) {
         mpp_buffer_group_put(data.pkt_grp);
@@ -61,20 +65,20 @@ void deInit(MppPacket *packet, MppFrame *frame, MppCtx ctx, char *buf, MpiDecLoo
 
 int main()
 {
-    AVFormatContext *pFormatCtx = NULL;
-    AVDictionary *options = NULL;
-    AVPacket *av_packet = NULL;
-    char filepath[] = "rtsp://admin:Buzhongyao123@192.168.200.228:554/h264/ch39/sub/av_stream";// rtsp 地址
+    //char filepath[] = "rtsp://admin:Buzhongyao123@192.168.200.228:554/h264/ch39/sub/av_stream";// rtsp 地址
+    char filepath[] = "rtsp://192.168.0.101:8557/h264";// rtsp 地址
 
-    av_register_all();  //函数在ffmpeg4.0以上版本已经被废弃，所以4.0以下版本就需要注册初始函数
+    //av_register_all();	//函数在ffmpeg4.0以上版本已经被废弃，所以4.0以下版本就需要注册初始函数
     avformat_network_init();
-    av_dict_set(&options, "buffer_size", "1024000", 0); //设置缓存大小,1080p可将值跳到最大
-    av_dict_set(&options, "rtsp_transport", "tcp", 0); //以tcp的方式打开,
-    av_dict_set(&options, "stimeout", "5000000", 0); //设置超时断开链接时间，单位us
-    av_dict_set(&options, "max_delay", "500000", 0); //设置最大时延
+    
+    AVDictionary *options = NULL;
+    av_dict_set(&options, "buffer_size", "1024000", 0);	//设置缓存大小,1080p可将值跳到最大
+    av_dict_set(&options, "rtsp_transport", "tcp", 0); 	//以tcp的方式打开,
+    av_dict_set(&options, "stimeout", "5000000", 0); 	//设置超时断开链接时间，单位us
+    av_dict_set(&options, "max_delay", "500000", 0); 	//设置最大时延
 
+    AVFormatContext *pFormatCtx = NULL;
     pFormatCtx = avformat_alloc_context(); //用来申请AVFormatContext类型变量并初始化默认参数,申请的空间
-
 
     //打开网络流或文件流
     if (avformat_open_input(&pFormatCtx, filepath, NULL, &options) != 0)
@@ -92,25 +96,35 @@ int main()
 
     //查找码流中是否有视频流
     int videoindex = -1;
-    unsigned i = 0;
-    for (i = 0; i<pFormatCtx->nb_streams; i++)
-        if (pFormatCtx->streams[i]->codec->codec_type == AVMEDIA_TYPE_VIDEO)
+    for (unsigned i = 0; i<pFormatCtx->nb_streams; i++)
+    {
+        if (pFormatCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
         {
             videoindex = i;
             break;
         }
+    }
+
     if (videoindex == -1)
     {
         printf("Didn't find a video stream.\n");
         return 0;
     }
 
+	av_dump_format(pFormatCtx,0,filepath,0);
+
+	int videoWidth = pFormatCtx->streams[videoindex]->codecpar->width;
+	int videoHeight = pFormatCtx->streams[videoindex]->codecpar->height;
+	printf("videoWidth = %d, videoHeight = %d \n",videoWidth,videoHeight);
+
+    AVPacket *av_packet = NULL;
     av_packet = (AVPacket *)av_malloc(sizeof(AVPacket)); // 申请空间，存放的每一帧数据 （h264、h265）
 
+	printf("============ FFmpeg Init OK! ============\n");
 
     //// 初始化
     MPP_RET ret         = MPP_OK;
-    size_t file_size    = 0;
+    //size_t file_size    = 0;
 
     // base flow context
     MppCtx ctx          = NULL;
@@ -123,12 +137,15 @@ int main()
     MpiCmd mpi_cmd      = MPP_CMD_BASE;
     MppParam param      = NULL;
     RK_U32 need_split   = 1;
-//    MppPollType timeout = 5;
+	// MppPollType timeout = 5;
 
     // paramter for resource malloc
-    RK_U32 width        = 2560;
-    RK_U32 height       = 1440;
+    //RK_U32 width        = 2560;
+    //RK_U32 height       = 1440;
+    RK_U32 width        = videoWidth;
+    RK_U32 height       = videoHeight;
     MppCodingType type  = MPP_VIDEO_CodingAVC;
+    //MppCodingType type  = MPP_VIDEO_CodingHEVC;
 
     // resources
     char *buf           = NULL;
@@ -187,8 +204,8 @@ int main()
     data.frame          = frame;
     data.frame_count    = 0;
 
-
-    int count = 0;
+	double e_record_time,s_record_time;
+    int index = 0;
     //这边可以调整i的大小来改变文件中的视频时间,每 +1 就是一帧数据
     while (1)
     {
@@ -196,18 +213,29 @@ int main()
         {
             if (av_packet->stream_index == videoindex)
             {
-               mpp_log("--------------\ndata size is: %d\n-------------", av_packet->size);
+               	mpp_log("--------------\ndata size is: %d\n-------------", av_packet->size);
                 decode_simple(&data, av_packet);
+
+				index += 1;
+				if (index % 100 == 0)
+				{
+					e_record_time = get_current_time();
+					double runtime = e_record_time - s_record_time;
+					double fps = 100*1000/runtime;
+					fprintf(stdout,"============> video decode: %f ms,%f fps \n",runtime/100,fps);
+					s_record_time = e_record_time;
+				}
+
+				if (index > 10)
+					break;
             }
             if (av_packet != NULL)
                 av_packet_unref(av_packet);
-            mpp_log("%d", i);
         }
     }    
 
-
-//    fclose(fpSave);
-    av_free(av_packet);
+	fclose(data.fp_output);
+	av_free(av_packet);
     avformat_close_input(&pFormatCtx);
 
     return 0;

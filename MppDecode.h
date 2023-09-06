@@ -9,17 +9,17 @@
 
 #include <string.h>
 
-#include "utils.h"
+//#include "utils.h"
 #include "rk_mpi.h"
 #include "mpp_log.h"
-#include "mpp_mem.h"
-#include "mpp_env.h"
-#include "mpp_time.h"
-#include "mpp_common.h"
+//#include "mpp_mem.h"
+//#include "mpp_env.h"
+//#include "mpp_time.h"
+//#include "mpp_common.h"
 
 #include "mpp_frame.h"
-#include "mpp_buffer_impl.h"
-#include "mpp_frame_impl.h"
+//#include "mpp_buffer_impl.h"
+//#include "mpp_frame_impl.h"
 #include <libavformat/avformat.h>
 
 #include <opencv2/core/core.hpp>

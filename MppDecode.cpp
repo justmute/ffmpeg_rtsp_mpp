@@ -3,6 +3,8 @@
 //
 
 #include "MppDecode.h"
+#include <unistd.h>
+#include <opencv2/imgproc/types_c.h>
 
 int frame_null = 0;
 int count = 0;
@@ -31,16 +33,17 @@ void dump_mpp_frame_to_file(MppFrame frame, FILE *fp)
     RK_U8 *base_y = base;
     RK_U8 *base_c = base + h_stride * v_stride;
 
+#ifdef YUV420sp
     //保存为YUV420sp格式
-    /*for (i = 0; i < height; i++, base_y += h_stride)
-    {
-        fwrite(base_y, 1, width, fp);
-    }
-    for (i = 0; i < height / 2; i++, base_c += h_stride)
-    {
-        fwrite(base_c, 1, width, fp);
-    }*/
-
+    //for (i = 0; i < height; i++, base_y += h_stride)
+    //{
+    //    fwrite(base_y, 1, width, fp);
+    //}
+    //for (i = 0; i < height / 2; i++, base_c += h_stride)
+    //{
+    //    fwrite(base_c, 1, width, fp);
+    //}
+#else
     //保存为YUV420p格式
     for(i = 0; i < height; i++, base_y += h_stride)
     {
@@ -54,18 +57,7 @@ void dump_mpp_frame_to_file(MppFrame frame, FILE *fp)
     {
         fwrite((base_c + i), 1, 1, fp);
     }
-}
-
-size_t mpp_buffer_group_usage(MppBufferGroup group)
-{
-    if (NULL == group)
-    {
-        mpp_err_f("input invalid group %p\n", group);
-        return MPP_BUFFER_MODE_BUTT;
-    }
-
-    MppBufferGroupImpl *p = (MppBufferGroupImpl *)group;
-    return p->usage;
+#endif
 }
 
 int decode_simple(MpiDecLoopData *data, AVPacket *av_packet )
@@ -76,7 +68,7 @@ int decode_simple(MpiDecLoopData *data, AVPacket *av_packet )
     MPP_RET ret = MPP_OK;
     MppCtx ctx  = data->ctx;
     MppApi *mpi = data->mpi;
-    // char   *buf = data->buf;
+    // char *buf = data->buf;
     MppPacket packet = NULL;
     MppFrame  frame  = NULL;
     size_t read_size = 0;
@@ -85,7 +77,6 @@ int decode_simple(MpiDecLoopData *data, AVPacket *av_packet )
 
     ret = mpp_packet_init(&packet, av_packet->data, av_packet->size);
     mpp_packet_set_pts(packet, av_packet->pts);
-
 
 
     do {
@@ -107,7 +98,7 @@ int decode_simple(MpiDecLoopData *data, AVPacket *av_packet )
             if (MPP_ERR_TIMEOUT == ret) {
                 if (times > 0) {
                     times--;
-                    msleep(2);
+                    usleep(2*1000);
                     goto try_again;
                 }
                 mpp_err("decode_get_frame failed too much time\n");
@@ -145,13 +136,14 @@ int decode_simple(MpiDecLoopData *data, AVPacket *av_packet )
                     }
                     data->frame_count++;
                     mpp_log("decode_get_frame get frame %d\n", data->frame_count);
-                   if (data->fp_output && !err_info){
-                       cv::Mat rgbImg;
-                       YUV420SP2Mat(frame, rgbImg);
-                    //    cv::imwrite("./"+std::to_string(count++)+".jpg", rgbImg);
+					if (data->fp_output && !err_info){
+						cv::Mat rgbImg;
+						YUV420SP2Mat(frame, rgbImg);
+						//cv::imwrite("./"+std::to_string(count++)+".jpg", rgbImg);
                    
-                    //    dump_mpp_frame_to_file(frame, data->fp_output);
-                   }
+						// 测试
+						dump_mpp_frame_to_file(frame, data->fp_output);
+					}
                 }
                 frm_eos = mpp_frame_get_eos(frame);
                 mpp_frame_deinit(&frame);
@@ -169,7 +161,7 @@ int decode_simple(MpiDecLoopData *data, AVPacket *av_packet )
 
             // if last packet is send but last frame is not found continue
             if (pkt_eos && pkt_done && !frm_eos) {
-                msleep(10);
+                usleep(10*1000);
                 continue;
             }
 
@@ -204,7 +196,7 @@ int decode_simple(MpiDecLoopData *data, AVPacket *av_packet )
          * frame which resolution is 1080p needs 2 ms,so here we sleep 3ms
          * * is enough.
          */
-        msleep(3);
+        usleep(3*1000);
     } while (1);
     mpp_packet_deinit(&packet);
 
@@ -241,12 +233,12 @@ void YUV420SP2Mat(MppFrame  frame, cv::Mat rgbImg ) {
 	//转为YUV420p格式
 	int idx = 0;
 	for (i = 0; i < height; i++, base_y += h_stride) {
-		//        fwrite(base_y, 1, width, fp);
+		// fwrite(base_y, 1, width, fp);
 		memcpy(yuvImg.data + idx, base_y, width);
 		idx += width;
 	}
 	for (i = 0; i < height / 2; i++, base_c += h_stride) {
-		//        fwrite(base_c, 1, width, fp);
+		// fwrite(base_c, 1, width, fp);
 		memcpy(yuvImg.data + idx, base_c, width);
 		idx += width;
 	}
