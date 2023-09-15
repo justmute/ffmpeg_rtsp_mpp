@@ -38,10 +38,10 @@ link_directories(
 
 add_executable(mpp_test MppDecode.cpp MppDecode.h main.cpp)
 
-target_link_libraries(mpp_test
-    rockchip_mpp
-	#utils
-    -lavformat -lavcodec -lswscale -lavutil -lz
+target_link_libraries(mpp_test 
+	rockchip_mpp
+	#utils 
+	-lavformat -lavcodec -lavutil -lz
 	${OpenCV_LIBS}
 	m
 )

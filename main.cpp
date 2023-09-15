@@ -9,8 +9,8 @@ extern "C" {
 #ifdef __cplusplus
 }
 #endif
-
 #include "MppDecode.h"
+
 
 static double get_current_time()
 {
@@ -63,19 +63,32 @@ void deInit(MppPacket *packet, MppFrame *frame, MppCtx ctx, char *buf, MpiDecLoo
     }
 }
 
+static MppCodingType rkmpp_get_codingtype(AVCodecID codeid)
+{
+	switch (codeid)
+	{
+	case AV_CODEC_ID_H264: return MPP_VIDEO_CodingAVC;
+	case AV_CODEC_ID_HEVC: return MPP_VIDEO_CodingHEVC;
+	case AV_CODEC_ID_VP8:  return MPP_VIDEO_CodingVP8;
+	case AV_CODEC_ID_VP9:  return MPP_VIDEO_CodingVP9;
+	default:			   return MPP_VIDEO_CodingUnused;
+	}
+}
+
 int main()
 {
     //char filepath[] = "rtsp://admin:Buzhongyao123@192.168.200.228:554/h264/ch39/sub/av_stream";// rtsp 地址
-    char filepath[] = "rtsp://192.168.0.101:8557/h264";// rtsp 地址
+    //char filepath[] = "rtsp://admin:admin@192.168.0.101:8557/h264";	// rtsp 地址
+    char filepath[] = "rtsp://admin:123456@192.168.0.123:554/h264";	// rtsp 地址
 
-    //av_register_all();	//函数在ffmpeg4.0以上版本已经被废弃，所以4.0以下版本就需要注册初始函数
+    //av_register_all();  //函数在ffmpeg4.0以上版本已经被废弃，所以4.0以下版本就需要注册初始函数
     avformat_network_init();
     
-    AVDictionary *options = NULL;
-    av_dict_set(&options, "buffer_size", "1024000", 0);	//设置缓存大小,1080p可将值跳到最大
-    av_dict_set(&options, "rtsp_transport", "tcp", 0); 	//以tcp的方式打开,
-    av_dict_set(&options, "stimeout", "5000000", 0); 	//设置超时断开链接时间，单位us
-    av_dict_set(&options, "max_delay", "500000", 0); 	//设置最大时延
+	AVDictionary *options = NULL;
+    av_dict_set(&options, "buffer_size", "1024000", 0); //设置缓存大小,1080p可将值跳到最大
+    av_dict_set(&options, "rtsp_transport", "tcp", 0); //以tcp的方式打开,
+    av_dict_set(&options, "stimeout", "5000000", 0); //设置超时断开链接时间，单位us
+    av_dict_set(&options, "max_delay", "500000", 0); //设置最大时延
 
     AVFormatContext *pFormatCtx = NULL;
     pFormatCtx = avformat_alloc_context(); //用来申请AVFormatContext类型变量并初始化默认参数,申请的空间
@@ -92,18 +105,20 @@ int main()
     {
         printf("Couldn't find stream information.\n");
         return 0;
-    }
+	}
+
+	av_dump_format(pFormatCtx,0,pFormatCtx->url,0);
 
     //查找码流中是否有视频流
     int videoindex = -1;
     for (unsigned i = 0; i<pFormatCtx->nb_streams; i++)
-    {
+	{
         if (pFormatCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
         {
             videoindex = i;
             break;
         }
-    }
+	}
 
     if (videoindex == -1)
     {
@@ -111,8 +126,7 @@ int main()
         return 0;
     }
 
-	av_dump_format(pFormatCtx,0,filepath,0);
-
+	AVCodecID videoCodecID = pFormatCtx->streams[videoindex]->codecpar->codec_id;
 	int videoWidth = pFormatCtx->streams[videoindex]->codecpar->width;
 	int videoHeight = pFormatCtx->streams[videoindex]->codecpar->height;
 	printf("videoWidth = %d, videoHeight = %d \n",videoWidth,videoHeight);
@@ -144,8 +158,7 @@ int main()
     //RK_U32 height       = 1440;
     RK_U32 width        = videoWidth;
     RK_U32 height       = videoHeight;
-    MppCodingType type  = MPP_VIDEO_CodingAVC;
-    //MppCodingType type  = MPP_VIDEO_CodingHEVC;
+    MppCodingType type  = MPP_VIDEO_CodingUnused;
 
     // resources
     char *buf           = NULL;
@@ -153,24 +166,33 @@ int main()
     MppBuffer pkt_buf   = NULL;
     MppBuffer frm_buf   = NULL;
 
-    MpiDecLoopData data;
+	type = rkmpp_get_codingtype(videoCodecID);
+    if (type == MPP_VIDEO_CodingUnused)
+	{
+		printf("Unknown codec type (%d)\n",videoCodecID);
+	}
 
-    mpp_log("mpi_dec_test start\n");
+	ret = mpp_check_support_format(MPP_CTX_DEC,type);
+	if (MPP_OK != ret)
+	{
+		printf("Codec type (%d) unsupported by MPP\n",videoCodecID);
+	}
+    
+	MpiDecLoopData data;
     memset(&data, 0, sizeof(data));
-
-    data.fp_output = fopen("./tenoutput.yuv", "w+b");
+    
+	data.fp_output = fopen("./tenoutput.yuv", "w+b");
     if (NULL == data.fp_output) {
-        mpp_err("failed to open output file %s\n", "tenoutput.yuv");
+        printf("failed to open output file %s\n", "tenoutput.yuv");
         deInit(&packet, &frame, ctx, buf, data);
     }
 
-    mpp_log("mpi_dec_test decoder test start w %d h %d type %d\n", width, height, type);
+    printf("mpi_dec_test decoder test start w %d h %d type %d\n", width, height, type);
 
     // decoder demo
     ret = mpp_create(&ctx, &mpi);
-
     if (MPP_OK != ret) {
-        mpp_err("mpp_create failed\n");
+        printf("mpp_create failed\n");
         deInit(&packet, &frame, ctx, buf, data);
     }
 
@@ -179,7 +201,7 @@ int main()
     param = &need_split;
     ret = mpi->control(ctx, mpi_cmd, param);
     if (MPP_OK != ret) {
-        mpp_err("mpi->control failed\n");
+        printf("mpi->control failed\n");
         deInit(&packet, &frame, ctx, buf, data);
     }
 
@@ -187,13 +209,13 @@ int main()
     param = &need_split;
     ret = mpi->control(ctx, mpi_cmd, param);
     if (MPP_OK != ret) {
-        mpp_err("mpi->control failed\n");
+        printf("mpi->control failed\n");
         deInit(&packet, &frame, ctx, buf, data);
     }
 
     ret = mpp_init(ctx, MPP_CTX_DEC, type);
     if (MPP_OK != ret) {
-        mpp_err("mpp_init failed\n");
+        printf("mpp_init failed\n");
         deInit(&packet, &frame, ctx, buf, data);
     }
 
@@ -203,39 +225,41 @@ int main()
     data.packet_size    = packet_size;
     data.frame          = frame;
     data.frame_count    = 0;
+	
+	printf("============ Mpp Init OK! ============\n");
 
-	double e_record_time,s_record_time;
-    int index = 0;
-    //这边可以调整i的大小来改变文件中的视频时间,每 +1 就是一帧数据
+    double e_record_time,s_record_time;
+	int index = 0;
+	//这边可以调整i的大小来改变文件中的视频时间,每 +1 就是一帧数据
     while (1)
     {
         if (av_read_frame(pFormatCtx, av_packet) >= 0)
         {
             if (av_packet->stream_index == videoindex)
             {
-               	mpp_log("--------------\ndata size is: %d\n-------------", av_packet->size);
+				printf("------------\ndata size is: %d\n------------", av_packet->size);
                 decode_simple(&data, av_packet);
-
+            
 				index += 1;
 				if (index % 100 == 0)
 				{
 					e_record_time = get_current_time();
 					double runtime = e_record_time - s_record_time;
 					double fps = 100*1000/runtime;
-					fprintf(stdout,"============> video decode: %f ms,%f fps \n",runtime/100,fps);
+					printf("============> video decode: %f ms,%f fps \n",runtime/100,fps);
 					s_record_time = e_record_time;
 				}
 
 				if (index > 10)
 					break;
-            }
+			}
             if (av_packet != NULL)
                 av_packet_unref(av_packet);
         }
     }    
 
 	fclose(data.fp_output);
-	av_free(av_packet);
+    av_free(av_packet);
     avformat_close_input(&pFormatCtx);
 
     return 0;
